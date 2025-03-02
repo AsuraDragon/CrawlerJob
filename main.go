@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"html"
+	"regexp"
 
 	"github.com/go-sql-driver/mysql"
 
@@ -64,6 +66,17 @@ func main() {
 		}
 
 		fmt.Printf("HTML: %v\n\n", htmlContent[:1000])
+
+		titleToUse := extractTitle(htmlContent)
+		if titleToUse != "" {
+			// update the title column
+			_, err = db.Exec("UPDATE web_article SET title = ? WHERE id = ?", titleToUse, article.Id)
+			if err != nil {
+				fmt.Printf("crawler: query to update the title failed for article id %v\n", article.Id)
+			} else {
+				fmt.Printf("crawler: query to update the title for article id %v was successful\n", article.Id)
+			}
+		}
 	}
 
 	fmt.Println("------------------------------------------")
@@ -125,4 +138,58 @@ func getHtml(url string) (string, error) {
 	}
 
 	return string(content), nil
+}
+
+func extractTitle(content string) string {
+
+	searchPrefix := "<title>"
+	searchSuffix := "</title>"
+	searchString2 := "og:title\" content="
+
+	titleTagRegEx := regexp.MustCompile(searchPrefix + ".*" + searchSuffix)
+	ogtitleTagRegEx := regexp.MustCompile("og:title\" content=\"(.*?)\"")
+
+	list1 := titleTagRegEx.FindStringSubmatch(content)
+	fmt.Printf("crawler: extractTitle() <title> %v\n", list1)
+
+	list2 := ogtitleTagRegEx.FindStringSubmatch(content)
+	fmt.Printf("crawler: extractTitle() og:title %v\n", list2)
+
+	// og:title meta tag is available
+	if len(list2) > 0 {
+		// use og:title
+		if len(list2[0]) > len(searchString2) {
+			// strip og:title" content=" from the first element
+			title := list2[0][len(searchString2)+1 : len(list2[0])-1]
+			title = html.UnescapeString(title)
+			fmt.Printf("crawler: extractTitle() using og:title = %v\n", title)
+			return title
+		}
+	}
+
+	// use <title> HTML tags
+	if len(list1) > 0 {
+		// use <title>...</title>
+		if len(list1[0]) < len(searchPrefix+searchSuffix) {
+			fmt.Printf("crawler: extractTitle() no suitable title found\n")
+			return ""
+		}
+		// extract content between <title> tags of the first element
+		title := list1[0][len(searchPrefix) : len(list1[0])-len(searchSuffix)]
+
+		title = html.UnescapeString(title)
+
+		// exclude invalid titles
+		if title == "Redirecting" || title == "Just a moment..." {
+			fmt.Printf("crawler: extractTitle() no suitable title found\n")
+			return ""
+		}
+
+		fmt.Printf("crawler: extractTitle() using <title> = %v\n", title)
+		return title
+	}
+
+	fmt.Printf("crawler: extractTitle() no suitable title found\n")
+	return ""
+
 }
