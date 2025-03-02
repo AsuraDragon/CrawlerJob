@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
 
-	// "github.com/securisec/go-keywords"
 	"io"
 	"net/http"
 	"os"
+	"sort"
+
+	"github.com/securisec/go-keywords"
 )
 
 func main() {
@@ -56,8 +59,6 @@ func main() {
 		fmt.Printf("crawler: Article ID: %v Title: %v\n", article.Id, article.Title)
 		fmt.Printf("crawler: URL: %v\n\n", article.Url)
 
-		// process each article here
-
 		// get the HTML contents
 		htmlContent, err := getHtml(article.Url)
 		if err != nil {
@@ -75,6 +76,19 @@ func main() {
 				fmt.Printf("crawler: query to update the title failed for article id %v\n", article.Id)
 			} else {
 				fmt.Printf("crawler: query to update the title for article id %v was successful\n", article.Id)
+			}
+		}
+
+		// extract keywords
+		keywordsGenerated := extractKeywords((article.Title + " " + article.Keywords))
+		keywordsAsString := strings.Join(keywordsGenerated, " ")
+		if len(keywordsAsString) > 0 {
+			// update the title column
+			_, err = db.Exec("UPDATE web_article SET keywords = ? WHERE id = ?", keywordsAsString, article.Id)
+			if err != nil {
+				fmt.Printf("crawler: query to update the keywords failed for article id %v\n", article.Id)
+			} else {
+				fmt.Printf("crawler: query to update the keywords for article id %v was successful\n", article.Id)
 			}
 		}
 	}
@@ -192,4 +206,19 @@ func extractTitle(content string) string {
 	fmt.Printf("crawler: extractTitle() no suitable title found\n")
 	return ""
 
+}
+
+func extractKeywords(content string) []string {
+
+	keywordList, _ := keywords.Extract(string(content), keywords.ExtractOptions{
+		StripTags:        true,
+		RemoveDuplicates: true,
+		RemoveDigits:     true,
+		IgnorePattern:    "<.+>",
+		Lowercase:        true,
+	})
+	sort.Strings(keywordList)
+	fmt.Printf("crawler: extractKeywords() generated keywords: %v\n", keywordList)
+
+	return keywordList
 }
